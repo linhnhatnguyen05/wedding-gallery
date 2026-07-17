@@ -1798,9 +1798,20 @@ export default function AllMediaGallery({
   // ── Load from IndexedDB or seed from static ──
   useEffect(() => {
     let mounted = true;
+    let fallbackTimeout = setTimeout(() => {
+      if (mounted) {
+        console.warn("IndexedDB load timed out. Falling back to static items.");
+        const staticItems = buildStaticItems();
+        setItems(staticItems);
+        setLoading(false);
+      }
+    }, 1500);
+
     async function load() {
       try {
         const dbPhotos = await getAllPhotos();
+        clearTimeout(fallbackTimeout);
+        if (!mounted) return;
         if (dbPhotos.length >= 10) {
           // Use IndexedDB data, slice to 188
           const galleryItems: GalleryItem[] = dbPhotos.slice(0, MAX_ITEMS).map(p => {
@@ -1817,7 +1828,8 @@ export default function AllMediaGallery({
               category: 'Portraits',
             };
           });
-          if (mounted) { setItems(galleryItems); setLoading(false); }
+          setItems(galleryItems);
+          setLoading(false);
         } else {
           // Seed from static data
           const staticItems = buildStaticItems();
@@ -1832,16 +1844,23 @@ export default function AllMediaGallery({
             isVideo: item.isVideo ?? false,
           }));
           await savePhotosBulk(toSave);
-          if (mounted) { setItems(staticItems); setLoading(false); }
+          setItems(staticItems);
+          setLoading(false);
         }
-      } catch {
-        // Fallback: use static data without DB
+      } catch (err) {
+        clearTimeout(fallbackTimeout);
+        if (!mounted) return;
+        console.error("IndexedDB error, falling back to static items:", err);
         const staticItems = buildStaticItems();
-        if (mounted) { setItems(staticItems); setLoading(false); }
+        setItems(staticItems);
+        setLoading(false);
       }
     }
     load();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+      clearTimeout(fallbackTimeout);
+    };
   }, []);
 
   const openLightbox = useCallback((index: number) => {
